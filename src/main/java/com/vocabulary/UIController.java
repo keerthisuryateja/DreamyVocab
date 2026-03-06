@@ -1,17 +1,26 @@
 package com.vocabulary;
 
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Scene;
-import javafx.scene.control.*;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.Label;
+import javafx.scene.control.ListView;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
-import java.io.IOException;
-import java.util.List;
-import java.util.Map;
 
 public class UIController {
 
@@ -99,6 +108,26 @@ public class UIController {
 
         // Keyboard shortcuts
         s.setOnKeyPressed(e -> {
+            if (e.isControlDown()) {
+                KeyCode code = e.getCode();
+                boolean zoomInShortcut = code == KeyCode.ADD
+                        || code == KeyCode.PLUS
+                        || (code == KeyCode.EQUALS && e.isShiftDown());
+                boolean zoomOutShortcut = code == KeyCode.SUBTRACT
+                        || code == KeyCode.MINUS;
+
+                if (zoomInShortcut) {
+                    onZoomIn();
+                    e.consume();
+                    return;
+                }
+                if (zoomOutShortcut) {
+                    onZoomOut();
+                    e.consume();
+                    return;
+                }
+            }
+
             if (e.getCode() == KeyCode.ESCAPE) {
                 if (editMode) {
                     onCancelEdit();
