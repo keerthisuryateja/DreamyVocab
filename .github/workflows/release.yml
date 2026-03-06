@@ -1,0 +1,102 @@
+name: Build & Release
+
+# Trigger when you push a version tag like v1.0.0
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Java setup ───────────────────────────────────────────────────────
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      # ── Python setup ─────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install requests pyinstaller
+
+      # ── Build Java fat JAR ───────────────────────────────────────────────
+      - name: Build fat JAR (Maven)
+        run: mvn package -DskipTests --no-transfer-progress
+
+      # ── Bundle Python executables ─────────────────────────────────────────
+      - name: Bundle Python backend (PyInstaller)
+        run: pyinstaller backend.spec
+
+      - name: Bundle launcher (PyInstaller)
+        run: pyinstaller "Vocabulary Tracker.spec"
+
+      # ── Assemble dist folder ──────────────────────────────────────────────
+      - name: Assemble dist folder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          # Fat JAR — maven-shade creates a shaded jar; grab it
+          $jar = Get-ChildItem target -Filter "*.jar" |
+                   Where-Object { $_.Name -notmatch "original" } |
+                   Select-Object -First 1
+          Copy-Item $jar.FullName dist\Tracker.jar
+          # PyInstaller outputs are already in dist\ from the spec files
+          # (backend.exe and "Vocabulary Tracker.exe")
+
+      # ── Build installer (Inno Setup) ──────────────────────────────────────
+      - name: Install Inno Setup 6
+        run: |
+          $url = "https://jrsoftware.org/download.php/is.exe"
+          Invoke-WebRequest -Uri $url -OutFile is_setup.exe
+          Start-Process -FilePath is_setup.exe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+        shell: pwsh
+
+      - name: Build installer
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc installer.iss
+        shell: pwsh
+
+      # ── Upload installer artifact ─────────────────────────────────────────
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VocabTracker-Setup
+          path: installer_out\VocabTracker-Setup.exe
+
+      # ── Create GitHub Release with the installer ──────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Personal Vocabulary Tracker ${{ github.ref_name }}"
+          body: |
+            ## Personal Vocabulary Tracker ${{ github.ref_name }}
+
+            ### Download
+            Download **`VocabTracker-Setup.exe`** below and run the installer.
+
+            **Requirements:** Windows 10/11 (64-bit) — no Java or Python needed.
+
+            ### What's included
+            - JavaFX UI (Java 21)
+            - Python dictionary backend (bundled, no install required)
+            - SQLite word database stored in `%APPDATA%\PersonalVocabTracker`
+
+            See the [Installation guide](https://github.com/${{ github.repository }}/blob/main/docs/Installation.md) for details.
+          files: installer_out\VocabTracker-Setup.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
