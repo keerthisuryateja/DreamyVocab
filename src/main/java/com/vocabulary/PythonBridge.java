@@ -38,10 +38,14 @@ public class PythonBridge {
             pb = new ProcessBuilder(backendExe.getAbsolutePath());
         } else {
             // Dev fallback: run bridge.py directly through the venv python
+            // Use the process working dir (project root) so backend/bridge.py resolves correctly
+            File projectRoot = new File(System.getProperty("user.dir"));
             String pythonCmd = "python";
-            File venvPython = new File(appDir, "venv/Scripts/python.exe");
+            File venvPython = new File(projectRoot, "venv/Scripts/python.exe");
             if (venvPython.exists()) pythonCmd = venvPython.getAbsolutePath();
-            pb = new ProcessBuilder(pythonCmd, "backend/bridge.py");
+            File bridgeScript = new File(projectRoot, "backend/bridge.py");
+            pb = new ProcessBuilder(pythonCmd, bridgeScript.getAbsolutePath());
+            appDir = projectRoot;
         }
         pb.directory(appDir);
         process = pb.start();
