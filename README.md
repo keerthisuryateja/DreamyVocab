@@ -12,6 +12,7 @@ A desktop application for looking up, saving, and reviewing English word definit
 - **Personal word list** — save words to a local SQLite database with one click
 - **Daily & total counters** — see how many words you've added today and in total
 - **Smart suggestions** — get related word suggestions as you type
+- **Quiz from recent words** — practice your last learned words with multiple-choice options and retry missed words
 - **Zoom support** — Ctrl +/− to scale the UI to your preference
 - **Fully offline after first run** — saved words are always available without internet
 

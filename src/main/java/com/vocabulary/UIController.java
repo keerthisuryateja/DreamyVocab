@@ -1,8 +1,11 @@
 package com.vocabulary;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -16,8 +19,11 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
+import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Toggle;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
@@ -43,6 +49,20 @@ public class UIController {
     @FXML private Button cancelEditBtn;
     @FXML private VBox sidebarPane;
     @FXML private Button sidebarToggleBtn;
+    @FXML private Button quizStartBtn;
+    @FXML private VBox quizPane;
+    @FXML private Label quizProgressLabel;
+    @FXML private Label quizSummaryLabel;
+    @FXML private Label quizWordLabel;
+    @FXML private Label quizFeedbackLabel;
+    @FXML private RadioButton quizOptionA;
+    @FXML private RadioButton quizOptionB;
+    @FXML private RadioButton quizOptionC;
+    @FXML private RadioButton quizOptionD;
+    @FXML private Button quizSubmitBtn;
+    @FXML private Button quizNextBtn;
+    @FXML private Button retryWrongBtn;
+    @FXML private ListView<String> quizHistoryList;
 
     // -- State ----------------------------------------------------------------
     private PythonBridge bridge;
@@ -64,6 +84,14 @@ public class UIController {
     private String  savedMeaning  = "";
 
     private final ObservableList<String> allWords = FXCollections.observableArrayList();
+    private final ObservableList<String> quizHistoryRows = FXCollections.observableArrayList();
+
+    private final ToggleGroup quizToggleGroup = new ToggleGroup();
+    private List<Map<String, Object>> quizQuestions = List.of();
+    private final List<Map<String, Object>> quizAnswers = new ArrayList<>();
+    private final List<String> retryWords = new ArrayList<>();
+    private int currentQuizIndex = -1;
+    private String activeQuizSessionId = "";
 
     // -- Init -----------------------------------------------------------------
     @FXML
@@ -71,6 +99,12 @@ public class UIController {
         sourceCombo.getItems().addAll("auto", "merriam", "wiktionary", "manual");
         sourceCombo.getSelectionModel().selectFirst();
         historyList.setItems(allWords);
+        quizHistoryList.setItems(quizHistoryRows);
+
+        quizOptionA.setToggleGroup(quizToggleGroup);
+        quizOptionB.setToggleGroup(quizToggleGroup);
+        quizOptionC.setToggleGroup(quizToggleGroup);
+        quizOptionD.setToggleGroup(quizToggleGroup);
 
         historyList.setOnMouseClicked(e -> {
             String sel = historyList.getSelectionModel().getSelectedItem();
@@ -85,6 +119,7 @@ public class UIController {
             bridge = new PythonBridge();
             updateStats();
             refreshHistory();
+            refreshQuizHistory();
         } catch (IOException ex) {
             showError("Failed to start backend: " + ex.getMessage());
         }
@@ -235,6 +270,276 @@ public class UIController {
                 }
             });
         }).start();
+    }
+
+    // -- Quiz -----------------------------------------------------------------
+    @FXML
+    private void onStartQuiz() {
+        startQuiz(null);
+    }
+
+    @FXML
+    private void onRetryWrongQuiz() {
+        if (retryWords.isEmpty()) {
+            showStatus("No incorrect words to retry.");
+            return;
+        }
+        startQuiz(new ArrayList<>(retryWords));
+    }
+
+    private void startQuiz(List<String> specificWords) {
+        if (bridge == null) return;
+
+        quizStartBtn.setDisable(true);
+        showStatus("Preparing quiz…");
+
+        new Thread(() -> {
+            Map<String, Object> req = new HashMap<>();
+            req.put("action", "start_quiz");
+            if (specificWords != null && !specificWords.isEmpty()) {
+                req.put("words", specificWords);
+                req.put("limit", specificWords.size());
+            } else {
+                req.put("limit", 5);
+            }
+
+            Map<String, Object> resp = bridge.sendRequest(req);
+            Platform.runLater(() -> {
+                quizStartBtn.setDisable(false);
+
+                if (!"success".equals(resp.get("status"))) {
+                    String msg = asString(resp.get("message"));
+                    showError(msg.isBlank() ? "Unable to start quiz." : msg);
+                    return;
+                }
+
+                activeQuizSessionId = asString(resp.get("session_id"));
+                quizQuestions = asQuestionList(resp.get("questions"));
+                quizAnswers.clear();
+                retryWords.clear();
+                currentQuizIndex = 0;
+
+                quizPane.setVisible(true);
+                quizPane.setManaged(true);
+                retryWrongBtn.setVisible(false);
+                retryWrongBtn.setManaged(false);
+                quizSummaryLabel.setText("");
+                renderCurrentQuizQuestion();
+                showSuccess("Quiz ready.");
+            });
+        }).start();
+    }
+
+    @FXML
+    private void onSubmitQuizAnswer() {
+        if (currentQuizIndex < 0 || currentQuizIndex >= quizQuestions.size()) return;
+
+        Toggle selectedToggle = quizToggleGroup.getSelectedToggle();
+        if (selectedToggle == null) {
+            showStatus("Choose an option first.");
+            return;
+        }
+
+        Map<String, Object> question = quizQuestions.get(currentQuizIndex);
+        int selectedIndex = asInt(selectedToggle.getUserData(), -1);
+        int correctIndex = asInt(question.get("correct_index"), -1);
+        List<String> options = asStringList(question.get("options"));
+        String word = asString(question.get("word"));
+
+        if (selectedIndex < 0 || selectedIndex >= options.size() || correctIndex < 0 || correctIndex >= options.size()) {
+            showError("Quiz data is invalid. Start the quiz again.");
+            return;
+        }
+
+        String selectedAnswer = options.get(selectedIndex);
+        String correctAnswer = options.get(correctIndex);
+        boolean isCorrect = selectedIndex == correctIndex;
+
+        Map<String, Object> answer = new HashMap<>();
+        answer.put("word", word);
+        answer.put("selected_answer", selectedAnswer);
+        answer.put("correct_answer", correctAnswer);
+        answer.put("is_correct", isCorrect);
+        quizAnswers.add(answer);
+
+        if (!isCorrect && !retryWords.contains(word)) {
+            retryWords.add(word);
+        }
+
+        quizFeedbackLabel.setText(isCorrect ? "Correct." : "Wrong. Correct answer: " + correctAnswer);
+        quizFeedbackLabel.getStyleClass().removeAll("status-error", "status-success");
+        quizFeedbackLabel.getStyleClass().add(isCorrect ? "status-success" : "status-error");
+
+        setQuizOptionsDisabled(true);
+        quizSubmitBtn.setDisable(true);
+        quizNextBtn.setText(currentQuizIndex < quizQuestions.size() - 1 ? "Next" : "Finish");
+        quizNextBtn.setVisible(true);
+        quizNextBtn.setManaged(true);
+    }
+
+    @FXML
+    private void onNextQuizQuestion() {
+        if (currentQuizIndex < quizQuestions.size() - 1) {
+            currentQuizIndex++;
+            renderCurrentQuizQuestion();
+        } else {
+            submitQuizResults();
+        }
+    }
+
+    private void renderCurrentQuizQuestion() {
+        if (quizQuestions.isEmpty() || currentQuizIndex < 0 || currentQuizIndex >= quizQuestions.size()) {
+            quizWordLabel.setText("No quiz questions available.");
+            quizProgressLabel.setText("");
+            quizFeedbackLabel.setText("");
+            quizSubmitBtn.setDisable(true);
+            return;
+        }
+
+        Map<String, Object> question = quizQuestions.get(currentQuizIndex);
+        String word = asString(question.get("word"));
+        List<String> options = asStringList(question.get("options"));
+
+        quizProgressLabel.setText("Question " + (currentQuizIndex + 1) + " / " + quizQuestions.size());
+        quizWordLabel.setText("What is the meaning of \"" + word + "\"?");
+        setQuizOptions(options);
+        setQuizOptionsDisabled(false);
+        quizSubmitBtn.setDisable(false);
+        quizFeedbackLabel.setText("");
+        quizNextBtn.setVisible(false);
+        quizNextBtn.setManaged(false);
+    }
+
+    private void submitQuizResults() {
+        if (bridge == null) return;
+
+        showStatus("Saving quiz results…");
+        new Thread(() -> {
+            Map<String, Object> req = new HashMap<>();
+            req.put("action", "submit_quiz");
+            req.put("session_id", activeQuizSessionId);
+            req.put("answers", quizAnswers);
+
+            Map<String, Object> resp = bridge.sendRequest(req);
+            Platform.runLater(() -> {
+                if (!"success".equals(resp.get("status"))) {
+                    showError("Failed to save quiz results.");
+                    return;
+                }
+
+                int total = asInt(resp.get("total"), quizAnswers.size());
+                int correct = asInt(resp.get("correct"), countCorrectAnswers());
+                quizSummaryLabel.setText("Score: " + correct + " / " + total);
+                quizProgressLabel.setText("Completed");
+                quizFeedbackLabel.setText(retryWords.isEmpty()
+                        ? "Great run. All answers were correct."
+                        : "You can retry the words you missed.");
+
+                retryWrongBtn.setVisible(!retryWords.isEmpty());
+                retryWrongBtn.setManaged(!retryWords.isEmpty());
+                quizNextBtn.setVisible(false);
+                quizNextBtn.setManaged(false);
+                quizSubmitBtn.setDisable(true);
+
+                refreshQuizHistory();
+                showSuccess("Quiz completed.");
+            });
+        }).start();
+    }
+
+    private int countCorrectAnswers() {
+        int total = 0;
+        for (Map<String, Object> ans : quizAnswers) {
+            if (Boolean.TRUE.equals(ans.get("is_correct"))) total++;
+        }
+        return total;
+    }
+
+    private void setQuizOptions(List<String> options) {
+        RadioButton[] buttons = {quizOptionA, quizOptionB, quizOptionC, quizOptionD};
+        for (int i = 0; i < buttons.length; i++) {
+            RadioButton btn = buttons[i];
+            if (i < options.size()) {
+                btn.setText(options.get(i));
+                btn.setUserData(i);
+                btn.setVisible(true);
+                btn.setManaged(true);
+            } else {
+                btn.setText("");
+                btn.setUserData(-1);
+                btn.setVisible(false);
+                btn.setManaged(false);
+            }
+        }
+        quizToggleGroup.selectToggle(null);
+    }
+
+    private void setQuizOptionsDisabled(boolean disabled) {
+        quizOptionA.setDisable(disabled || !quizOptionA.isManaged());
+        quizOptionB.setDisable(disabled || !quizOptionB.isManaged());
+        quizOptionC.setDisable(disabled || !quizOptionC.isManaged());
+        quizOptionD.setDisable(disabled || !quizOptionD.isManaged());
+    }
+
+    private void refreshQuizHistory() {
+        if (bridge == null) return;
+
+        new Thread(() -> {
+            Map<String, Object> req = Map.of("action", "quiz_history", "limit", 10);
+            Map<String, Object> resp = bridge.sendRequest(req);
+            Platform.runLater(() -> {
+                if (!"success".equals(resp.get("status"))) return;
+
+                List<String> rows = new ArrayList<>();
+                Object historyObj = resp.get("history");
+                if (historyObj instanceof List<?> list) {
+                    for (Object item : list) {
+                        if (!(item instanceof Map<?, ?> map)) continue;
+                        int total = asInt(map.get("total_questions"), 0);
+                        int correct = asInt(map.get("correct_answers"), 0);
+                        String created = asString(map.get("created_on"));
+                        rows.add(created + "  -  " + correct + "/" + total);
+                    }
+                }
+                quizHistoryRows.setAll(rows);
+            });
+        }).start();
+    }
+
+    private static String asString(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static int asInt(Object value, int fallback) {
+        if (value instanceof Number n) return n.intValue();
+        try {
+            return Integer.parseInt(Objects.toString(value, ""));
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
+    private static List<String> asStringList(Object value) {
+        List<String> out = new ArrayList<>();
+        if (value instanceof List<?> list) {
+            for (Object item : list) out.add(asString(item));
+        }
+        return out;
+    }
+
+    private static List<Map<String, Object>> asQuestionList(Object value) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (value instanceof List<?> list) {
+            for (Object item : list) {
+                if (!(item instanceof Map<?, ?> map)) continue;
+                Map<String, Object> row = new HashMap<>();
+                for (Map.Entry<?, ?> e : map.entrySet()) {
+                    row.put(asString(e.getKey()), e.getValue());
+                }
+                out.add(row);
+            }
+        }
+        return out;
     }
 
     // -- Zoom -----------------------------------------------------------------

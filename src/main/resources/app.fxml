@@ -46,9 +46,44 @@
                            styleClass="search-box" HBox.hgrow="ALWAYS" onAction="#onSearch"/>
                 <ComboBox fx:id="sourceCombo" styleClass="source-combo"/>
                 <Button fx:id="searchBtn" text="Search" onAction="#onSearch" styleClass="search-btn"/>
+                <Button fx:id="quizStartBtn" text="Quiz Last Words" onAction="#onStartQuiz" styleClass="quiz-start-btn"/>
             </HBox>
 
             <Label fx:id="statusLabel" text="" styleClass="status-label"/>
+
+            <!-- Quiz panel -->
+            <VBox fx:id="quizPane" styleClass="quiz-pane" spacing="8" visible="false" managed="false">
+                <padding><Insets top="10" right="10" bottom="10" left="10"/></padding>
+
+                <HBox alignment="CENTER_LEFT" spacing="8">
+                    <Label text="🧠 Quiz" styleClass="quiz-title"/>
+                    <Label fx:id="quizProgressLabel" text="" styleClass="quiz-progress"/>
+                    <Region HBox.hgrow="ALWAYS"/>
+                    <Label fx:id="quizSummaryLabel" text="" styleClass="quiz-summary"/>
+                </HBox>
+
+                <Label fx:id="quizWordLabel" text="" styleClass="quiz-word"/>
+
+                <VBox spacing="6">
+                    <RadioButton fx:id="quizOptionA" styleClass="quiz-option" wrapText="true"/>
+                    <RadioButton fx:id="quizOptionB" styleClass="quiz-option" wrapText="true"/>
+                    <RadioButton fx:id="quizOptionC" styleClass="quiz-option" wrapText="true"/>
+                    <RadioButton fx:id="quizOptionD" styleClass="quiz-option" wrapText="true"/>
+                </VBox>
+
+                <Label fx:id="quizFeedbackLabel" text="" styleClass="quiz-feedback"/>
+
+                <HBox spacing="8" alignment="CENTER_LEFT">
+                    <Button fx:id="quizSubmitBtn" text="Submit Answer" onAction="#onSubmitQuizAnswer" styleClass="quiz-action-btn"/>
+                    <Button fx:id="quizNextBtn" text="Next" onAction="#onNextQuizQuestion"
+                            styleClass="quiz-action-btn" visible="false" managed="false"/>
+                    <Button fx:id="retryWrongBtn" text="Retry Incorrect" onAction="#onRetryWrongQuiz"
+                            styleClass="quiz-retry-btn" visible="false" managed="false"/>
+                </HBox>
+
+                <Label text="Recent quiz history" styleClass="quiz-history-title"/>
+                <ListView fx:id="quizHistoryList" styleClass="quiz-history-list" maxHeight="110"/>
+            </VBox>
 
             <!-- Empty / welcome state -->
             <VBox fx:id="emptyState" alignment="CENTER" VBox.vgrow="ALWAYS" spacing="8">

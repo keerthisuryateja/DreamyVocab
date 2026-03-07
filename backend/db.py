@@ -2,7 +2,6 @@ import sqlite3
 import os
 import sys
 from datetime import date
-import sys
 
 if getattr(sys, 'frozen', False):
     # Installed app: write user data to %APPDATA%\PersonalVocabTracker
@@ -30,6 +29,28 @@ def init_db():
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_word ON words (word)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_added_on ON words (added_on)')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS quiz_sessions (
+            session_id       TEXT PRIMARY KEY,
+            total_questions  INTEGER NOT NULL,
+            correct_answers  INTEGER NOT NULL,
+            created_on       TEXT DEFAULT (datetime('now'))
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS quiz_answers (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id      TEXT NOT NULL,
+            word            TEXT NOT NULL,
+            selected_answer TEXT,
+            correct_answer  TEXT NOT NULL,
+            is_correct      INTEGER NOT NULL,
+            answered_on     TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(session_id) REFERENCES quiz_sessions(session_id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_quiz_sessions_created_on ON quiz_sessions (created_on)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_quiz_answers_session_id ON quiz_answers (session_id)')
     conn.commit()
     conn.close()
 
@@ -102,5 +123,70 @@ def list_words(limit=300):
     rows = cursor.fetchall()
     conn.close()
     return [row[0] for row in rows]
+
+def list_word_entries(limit=300):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT word, meaning FROM words ORDER BY added_on DESC, id DESC LIMIT ?',
+        (limit,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"word": row[0], "meaning": row[1]} for row in rows]
+
+def save_quiz_session(session_id, total_questions, correct_answers, answers):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        '''
+        INSERT OR REPLACE INTO quiz_sessions (session_id, total_questions, correct_answers, created_on)
+        VALUES (?, ?, ?, datetime('now'))
+        ''',
+        (session_id, total_questions, correct_answers)
+    )
+
+    cursor.execute('DELETE FROM quiz_answers WHERE session_id = ?', (session_id,))
+    for ans in answers:
+        cursor.execute(
+            '''
+            INSERT INTO quiz_answers (session_id, word, selected_answer, correct_answer, is_correct, answered_on)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ''',
+            (
+                session_id,
+                ans.get("word", ""),
+                ans.get("selected_answer"),
+                ans.get("correct_answer", ""),
+                1 if ans.get("is_correct") else 0,
+            )
+        )
+
+    conn.commit()
+    conn.close()
+
+def list_quiz_history(limit=20):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        '''
+        SELECT session_id, total_questions, correct_answers, created_on
+        FROM quiz_sessions
+        ORDER BY created_on DESC
+        LIMIT ?
+        ''',
+        (limit,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "session_id": row[0],
+            "total_questions": row[1],
+            "correct_answers": row[2],
+            "created_on": row[3],
+        }
+        for row in rows
+    ]
 
 init_db()
