@@ -1,6 +1,10 @@
 package com.vocabulary;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -17,6 +21,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.RadioButton;
@@ -25,7 +30,10 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.Toggle;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.KeyCode;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
 public class UIController {
@@ -42,6 +50,7 @@ public class UIController {
     @FXML private Label sourceLabel;
     @FXML private Label todayBadge;
     @FXML private Label totalBadge;
+    @FXML private Label streakBadge;
     @FXML private Label statusLabel;
     @FXML private ListView<String> historyList;
     @FXML private TextField historyFilter;
@@ -50,6 +59,7 @@ public class UIController {
     @FXML private VBox sidebarPane;
     @FXML private Button sidebarToggleBtn;
     @FXML private Button quizStartBtn;
+    @FXML private ComboBox<String> quizSizeCombo;
     @FXML private VBox quizPane;
     @FXML private Label quizProgressLabel;
     @FXML private Label quizSummaryLabel;
@@ -62,6 +72,7 @@ public class UIController {
     @FXML private Button quizSubmitBtn;
     @FXML private Button quizNextBtn;
     @FXML private Button retryWrongBtn;
+    @FXML private Button quizCloseBtn;
     @FXML private ListView<String> quizHistoryList;
 
     // -- State ----------------------------------------------------------------
@@ -69,8 +80,8 @@ public class UIController {
     private Scene scene;
     private Stage stage;
 
-    /** Window dimensions for the base zoom level (1.0�). */
-    private static final double BASE_FONT   = 14.0;
+    /** Window dimensions for the base zoom level (1.0). */
+    private static final double BASE_FONT   = 16.0;
     private static final double BASE_WIDTH  = 820.0;
     private static final double BASE_HEIGHT = 580.0;
 
@@ -78,7 +89,7 @@ public class UIController {
     private double decorW = 0;
     private double decorH = 0;
 
-    private double zoomLevel = 1.0;
+    private double zoomLevel = 1.3;
     private boolean editMode = false;
     private boolean sidebarVisible = true;
     private String  savedMeaning  = "";
@@ -98,6 +109,8 @@ public class UIController {
     public void initialize() {
         sourceCombo.getItems().addAll("auto", "merriam", "wiktionary", "manual");
         sourceCombo.getSelectionModel().selectFirst();
+        quizSizeCombo.getItems().addAll("5", "10", "15", "20");
+        quizSizeCombo.getSelectionModel().selectFirst();
         historyList.setItems(allWords);
         quizHistoryList.setItems(quizHistoryRows);
 
@@ -120,6 +133,7 @@ public class UIController {
             updateStats();
             refreshHistory();
             refreshQuizHistory();
+            refreshStreak();
         } catch (IOException ex) {
             showError("Failed to start backend: " + ex.getMessage());
         }
@@ -140,6 +154,9 @@ public class UIController {
 
         stage.setMinWidth (BASE_WIDTH  * 0.75 + decorW);
         stage.setMinHeight(BASE_HEIGHT * 0.75 + decorH);
+
+        // Apply the default zoom so BASE_FONT takes effect immediately
+        applyZoom();
 
         // Keyboard shortcuts
         s.setOnKeyPressed(e -> {
@@ -189,6 +206,7 @@ public class UIController {
 
         showCard();
         meaningArea.setText("Looking up\u2026");
+        VBox.setVgrow(meaningArea, Priority.ALWAYS);
         sourceLabel.setText("");
         suggestionList.setVisible(false);
         suggestionList.setManaged(false);
@@ -215,6 +233,7 @@ public class UIController {
                         refreshHistory();
                     }
                     case "suggestions" -> {
+                        VBox.setVgrow(meaningArea, Priority.NEVER);
                         meaningArea.setText("Did you mean one of these?");
                         @SuppressWarnings("unchecked")
                         List<String> sugs = (List<String>) resp.get("suggestions");
@@ -272,7 +291,143 @@ public class UIController {
         }).start();
     }
 
+    // -- Add Word manually ---------------------------------------------------
+    @FXML
+    private void onAddWord() {
+        Dialog<ButtonType> dlg = new Dialog<>();
+        dlg.setTitle("Add Word");
+        dlg.setHeaderText("Add a word manually to your vocabulary");
+
+        TextField wordField = new TextField();
+        wordField.setPromptText("Word");
+        TextArea defArea = new TextArea();
+        defArea.setPromptText("Definition");
+        defArea.setPrefRowCount(4);
+        defArea.setWrapText(true);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10); grid.setVgap(8);
+        grid.add(new Label("Word:"), 0, 0);
+        grid.add(wordField, 1, 0);
+        grid.add(new Label("Definition:"), 0, 1);
+        grid.add(defArea, 1, 1);
+        GridPane.setHgrow(wordField, Priority.ALWAYS);
+        GridPane.setHgrow(defArea, Priority.ALWAYS);
+        grid.setMinWidth(420);
+
+        dlg.getDialogPane().setContent(grid);
+        dlg.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        Platform.runLater(wordField::requestFocus);
+
+        dlg.showAndWait().ifPresent(btn -> {
+            if (btn != ButtonType.OK) return;
+            String w = wordField.getText().trim().toLowerCase();
+            String def = defArea.getText().trim();
+            if (w.isEmpty() || def.isEmpty()) {
+                showError("Word and definition cannot be empty.");
+                return;
+            }
+            new Thread(() -> {
+                Map<String, Object> req = Map.of("action", "add", "word", w, "meaning", def);
+                Map<String, Object> resp = bridge.sendRequest(req);
+                Platform.runLater(() -> {
+                    if ("success".equals(resp.get("status"))) {
+                        searchField.setText(w);
+                        onSearch();
+                        updateStats();
+                        refreshHistory();
+                        refreshStreak();
+                        showSuccess("\u201c" + w + "\u201d added.");
+                    } else {
+                        showError("Word already exists or could not be saved.");
+                    }
+                });
+            }).start();
+        });
+    }
+
+    // -- Export ---------------------------------------------------------------
+    @FXML
+    private void onExport() {
+        if (bridge == null) return;
+        FileChooser fc = new FileChooser();
+        fc.setTitle("Export Vocabulary");
+        fc.setInitialFileName("vocabulary.txt");
+        fc.getExtensionFilters().addAll(
+            new FileChooser.ExtensionFilter("Text Files", "*.txt"),
+            new FileChooser.ExtensionFilter("CSV Files", "*.csv")
+        );
+        java.io.File file = fc.showSaveDialog(stage);
+        if (file == null) return;
+
+        boolean csv = file.getName().toLowerCase().endsWith(".csv");
+        new Thread(() -> {
+            Map<String, Object> req  = Map.of("action", "export_words");
+            Map<String, Object> resp = bridge.sendRequest(req);
+            Platform.runLater(() -> {
+                if (!"success".equals(resp.get("status"))) {
+                    showError("Export failed."); return;
+                }
+                Object raw = resp.get("entries");
+                if (!(raw instanceof List<?> list)) { showError("No data to export."); return; }
+                try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(
+                        Path.of(file.getAbsolutePath()), StandardCharsets.UTF_8))) {
+                    if (csv) pw.println("word,meaning");
+                    for (Object item : list) {
+                        if (!(item instanceof Map<?,?> m)) continue;
+                        String word = asString(m.get("word"));
+                        String meaning = asString(m.get("meaning")).replace("\n", " ");
+                        if (csv) {
+                            pw.println("\"" + word.replace("\"","\"\"") + "\",\"" + meaning.replace("\"","\"\"") + "\"");
+                        } else {
+                            pw.println(word.toUpperCase());
+                            pw.println(meaning);
+                            pw.println();
+                        }
+                    }
+                    showSuccess("Exported " + list.size() + " words to " + file.getName());
+                } catch (Exception ex) {
+                    showError("Could not write file: " + ex.getMessage());
+                }
+            });
+        }).start();
+    }
+
+    // -- Streak ---------------------------------------------------------------
+    private void refreshStreak() {
+        if (bridge == null) return;
+        new Thread(() -> {
+            Map<String, Object> req  = Map.of("action", "streak");
+            Map<String, Object> resp = bridge.sendRequest(req);
+            Platform.runLater(() -> {
+                if ("success".equals(resp.get("status"))) {
+                    int s = asInt(resp.get("streak"), 0);
+                    if (s > 1) {
+                        streakBadge.setText("\uD83D\uDD25 " + s + " day streak");
+                        streakBadge.setVisible(true);
+                        streakBadge.setManaged(true);
+                    } else {
+                        streakBadge.setVisible(false);
+                        streakBadge.setManaged(false);
+                    }
+                }
+            });
+        }).start();
+    }
+
     // -- Quiz -----------------------------------------------------------------
+    @FXML
+    private void onCloseQuiz() {
+        quizPane.setVisible(false);
+        quizPane.setManaged(false);
+        // Restore welcome state if no word card is currently showing
+        if (!cardArea.isManaged()) {
+            emptyState.setVisible(true);
+            emptyState.setManaged(true);
+        }
+    }
+
     @FXML
     private void onStartQuiz() {
         startQuiz(null);
@@ -290,6 +445,10 @@ public class UIController {
     private void startQuiz(List<String> specificWords) {
         if (bridge == null) return;
 
+        int limit = 5;
+        try { limit = Integer.parseInt(quizSizeCombo.getValue()); } catch (Exception ignored) {}
+        final int quizLimit = limit;
+
         quizStartBtn.setDisable(true);
         showStatus("Preparing quiz…");
 
@@ -300,7 +459,7 @@ public class UIController {
                 req.put("words", specificWords);
                 req.put("limit", specificWords.size());
             } else {
-                req.put("limit", 5);
+                req.put("limit", quizLimit);
             }
 
             Map<String, Object> resp = bridge.sendRequest(req);
@@ -321,6 +480,12 @@ public class UIController {
 
                 quizPane.setVisible(true);
                 quizPane.setManaged(true);
+                // Hide the welcome empty-state so it doesn't steal vertical space
+                // (has VBox.vgrow=ALWAYS which would collapse quiz pane)
+                if (!cardArea.isManaged()) {
+                    emptyState.setVisible(false);
+                    emptyState.setManaged(false);
+                }
                 retryWrongBtn.setVisible(false);
                 retryWrongBtn.setManaged(false);
                 quizSummaryLabel.setText("");
@@ -545,7 +710,7 @@ public class UIController {
     // -- Zoom -----------------------------------------------------------------
     @FXML private void onZoomIn()    { if (zoomLevel < 2.0) { zoomLevel = round1(zoomLevel + 0.1); applyZoom(); } }
     @FXML private void onZoomOut()   { if (zoomLevel > 0.6) { zoomLevel = round1(zoomLevel - 0.1); applyZoom(); } }
-    @FXML private void onZoomReset() { zoomLevel = 1.0; applyZoom(); }
+    @FXML private void onZoomReset() { zoomLevel = 1.3; applyZoom(); }
 
     private void applyZoom() {
         if (scene == null) return;
@@ -676,6 +841,7 @@ public class UIController {
                 }
             });
         }).start();
+        refreshStreak();
     }
 
     // -- Helpers --------------------------------------------------------------
@@ -687,6 +853,9 @@ public class UIController {
     private void hideCard() {
         cardArea.setVisible(false);    cardArea.setManaged(false);
         emptyState.setVisible(true);   emptyState.setManaged(true);
+        suggestionList.setVisible(false);
+        suggestionList.setManaged(false);
+        VBox.setVgrow(meaningArea, Priority.ALWAYS);
     }
 
     private void showStatus(String msg) {

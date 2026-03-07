@@ -205,7 +205,14 @@ def process_request(req):
             "status": "success",
             "history": db.list_quiz_history(limit),
         }
-        
+
+    elif action == "export_words":
+        entries = db.list_word_entries(10000)
+        return {"status": "success", "entries": entries}
+
+    elif action == "streak":
+        return {"status": "success", "streak": db.count_streak()}
+
     return {"status": "error", "message": f"Unknown action: {action}"}
 
 def main():

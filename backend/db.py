@@ -189,4 +189,32 @@ def list_quiz_history(limit=20):
         for row in rows
     ]
 
+def count_streak():
+    """Return the number of consecutive days (ending today) that at least one word was added."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT DISTINCT added_on FROM words ORDER BY added_on DESC"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return 0
+
+    from datetime import timedelta
+    streak = 0
+    check = date.today()
+    for (day_str,) in rows:
+        try:
+            day = date.fromisoformat(day_str)
+        except ValueError:
+            continue
+        if day == check:
+            streak += 1
+            check -= timedelta(days=1)
+        elif day < check:
+            break
+    return streak
+
 init_db()

@@ -17,7 +17,7 @@
             <Label text="🌸 Dreamy Vocab" styleClass="app-title" HBox.hgrow="ALWAYS" maxWidth="Infinity"/>
             <Label fx:id="todayBadge" text="Today: 0" styleClass="badge"/>
             <Label fx:id="totalBadge" text="Total: 0" styleClass="badge"/>
-            <Separator orientation="VERTICAL" styleClass="hdr-sep"/>
+            <Label fx:id="streakBadge" text="" styleClass="badge streak-badge"/>
             <Button text="A−" onAction="#onZoomOut" styleClass="zoom-btn"/>
             <Button text="A+" onAction="#onZoomIn" styleClass="zoom-btn"/>
             <Button text="↺" onAction="#onZoomReset" styleClass="zoom-btn"/>
@@ -46,7 +46,10 @@
                            styleClass="search-box" HBox.hgrow="ALWAYS" onAction="#onSearch"/>
                 <ComboBox fx:id="sourceCombo" styleClass="source-combo"/>
                 <Button fx:id="searchBtn" text="Search" onAction="#onSearch" styleClass="search-btn"/>
-                <Button fx:id="quizStartBtn" text="Quiz Last Words" onAction="#onStartQuiz" styleClass="quiz-start-btn"/>
+                <Button text="+ Add" onAction="#onAddWord" styleClass="add-word-btn"/>
+                <Button text="Export" onAction="#onExport" styleClass="export-btn"/>
+                <ComboBox fx:id="quizSizeCombo" styleClass="quiz-size-combo" prefWidth="60"/>
+                <Button fx:id="quizStartBtn" text="Quiz" onAction="#onStartQuiz" styleClass="quiz-start-btn"/>
             </HBox>
 
             <Label fx:id="statusLabel" text="" styleClass="status-label"/>
@@ -56,10 +59,11 @@
                 <padding><Insets top="10" right="10" bottom="10" left="10"/></padding>
 
                 <HBox alignment="CENTER_LEFT" spacing="8">
-                    <Label text="🧠 Quiz" styleClass="quiz-title"/>
+                    <Label text="✏ Quiz" styleClass="quiz-title"/>
                     <Label fx:id="quizProgressLabel" text="" styleClass="quiz-progress"/>
                     <Region HBox.hgrow="ALWAYS"/>
                     <Label fx:id="quizSummaryLabel" text="" styleClass="quiz-summary"/>
+                    <Button fx:id="quizCloseBtn" text="✕" onAction="#onCloseQuiz" styleClass="quiz-close-btn"/>
                 </HBox>
 
                 <Label fx:id="quizWordLabel" text="" styleClass="quiz-word"/>
