@@ -105,6 +105,12 @@ iscc installer.iss
 - Save, edit, delete words
 - Multiple-choice quiz with retry
 - Text-to-speech, zoom, sidebar word list
+---
+
+## Contributors
+
+- **Surya Teja** — Backend (Python)
+- **Akhila** — Frontend (Java)
 
 ---
 
